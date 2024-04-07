@@ -1,23 +1,28 @@
-﻿using Bookify.Web.Core.Models;
-using Bookify.Web.Filters;
-using Microsoft.AspNetCore.Mvc;
-
+﻿
 namespace Bookify.Web.Controllers
 {
-	public class CategoriesController : Controller
-	{
+    public class CategoriesController : Controller
+    {
         private readonly ApplicationDbContext _context;
+        private readonly IMapper _mapper;
 
-        public CategoriesController(ApplicationDbContext context)
+        public CategoriesController(ApplicationDbContext context, IMapper mapper)
         {
             _context = context;
+            _mapper = mapper;
         }
 
         [HttpGet]
         public IActionResult Index()
-		{
-			return View(_context.Categories.AsNoTracking().ToList());
-		}
+        {
+            var category = _context.Categories
+                .AsNoTracking()
+                .ToList();
+
+            var viewModel = _mapper.Map<IEnumerable<CategoryViewModel>>(category);
+
+            return View(viewModel);
+        }
 
         [HttpGet]
         [AjaxOnly]
@@ -33,11 +38,13 @@ namespace Bookify.Web.Controllers
             if (!ModelState.IsValid)
                 return BadRequest();
 
-            var category = new Category { Name = model.Name };
+            var category = _mapper.Map<Category>(model);
             _context.Add(category);
             _context.SaveChanges();
 
-            return PartialView("_CategoryRow", category);
+            var viewModel = _mapper.Map<CategoryViewModel>(category);
+
+            return PartialView("_CategoryRow", viewModel);
         }
 
         [HttpGet]
@@ -48,11 +55,8 @@ namespace Bookify.Web.Controllers
             if (category is null)
                 return NotFound();
 
-            var viewModel = new CategoryFormViewModel
-            {
-                Id = id,
-                Name = category.Name
-            };
+            var viewModel = _mapper.Map<CategoryFormViewModel>(category);
+
             return PartialView("_Form", viewModel);
         }
 
@@ -67,12 +71,14 @@ namespace Bookify.Web.Controllers
             if (category is null)
                 return NotFound();
 
-            category.Name = model.Name;
+            category = _mapper.Map(model, category);
             category.LastUpdatedOn = DateTime.Now;
-           
+
             _context.SaveChanges();
 
-            return PartialView("_CategoryRow", category);
+            var viewModel = _mapper.Map<CategoryViewModel>(category);
+
+            return PartialView("_CategoryRow", viewModel);
         }
 
         [HttpPost]
@@ -90,6 +96,14 @@ namespace Bookify.Web.Controllers
             _context.SaveChanges();
 
             return Ok(category.LastUpdatedOn.ToString());
+        }
+
+        public IActionResult AllowItem(CategoryFormViewModel model)
+        {
+            var category = _context.Categories.SingleOrDefault(c => c.Name == model.Name);
+            var isAllowed = category is null || category.Id.Equals(model.Id);
+
+            return Json(isAllowed);
         }
     }
 }
