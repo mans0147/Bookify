@@ -1,5 +1,4 @@
-﻿
-namespace Bookify.Web.Controllers
+﻿namespace Bookify.Web.Controllers
 {
     public class CategoriesController : Controller
     {
@@ -15,11 +14,9 @@ namespace Bookify.Web.Controllers
         [HttpGet]
         public IActionResult Index()
         {
-            var category = _context.Categories
-                .AsNoTracking()
-                .ToList();
+            var categories = _context.Categories.AsNoTracking().ToList();
 
-            var viewModel = _mapper.Map<IEnumerable<CategoryViewModel>>(category);
+            var viewModel = _mapper.Map<IEnumerable<CategoryViewModel>>(categories);
 
             return View(viewModel);
         }
@@ -52,6 +49,7 @@ namespace Bookify.Web.Controllers
         public IActionResult Edit(int id)
         {
             var category = _context.Categories.Find(id);
+
             if (category is null)
                 return NotFound();
 
@@ -68,6 +66,7 @@ namespace Bookify.Web.Controllers
                 return BadRequest();
 
             var category = _context.Categories.Find(model.Id);
+
             if (category is null)
                 return NotFound();
 
