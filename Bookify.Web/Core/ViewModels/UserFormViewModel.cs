@@ -23,7 +23,7 @@ namespace Bookify.Web.Core.ViewModels
         [DataType(DataType.Password), 
             StringLength(100, ErrorMessage = Errors.MaxMinLength, MinimumLength = 8),
             RegularExpression(RegexPatterns.Password, ErrorMessage = Errors.WeakPassword)]
-        [RequiredIf("Id == null", ErrorMessage = Errors.RequiredField)]
+        //[RequiredIf("Id == null", ErrorMessage = Errors.RequiredField)]
         public string? Password { get; set; } = null!;
 
         [DataType(DataType.Password), Display(Name = "Confirm password"),
