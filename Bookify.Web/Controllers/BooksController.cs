@@ -1,4 +1,12 @@
-﻿using Microsoft.AspNetCore.Mvc.Rendering;
+﻿using Bookify.Web.Filters;
+using CloudinaryDotNet;
+using CloudinaryDotNet.Actions;
+using Microsoft.AspNetCore.Mvc.Rendering;
+using Microsoft.Extensions.Options;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Processing;
+using System.Linq;
+using System.Linq.Dynamic.Core;
 
 namespace Bookify.Web.Controllers
 {
@@ -7,6 +15,7 @@ namespace Bookify.Web.Controllers
         private readonly IWebHostEnvironment _webHostEnvironment;
         private readonly ApplicationDbContext _context;
         private readonly IMapper _mapper;
+        private readonly Cloudinary _cloudinary;
 
         private List<string> _allowedExtensions = new() { ".jpg", ".jpeg", ".png" };
         private int _maxAllowedSize = 2097152;
@@ -16,12 +25,45 @@ namespace Bookify.Web.Controllers
         {
             _context = context;
             _mapper = mapper;
-            _webHostEnvironment = webHostEnvironment;
+
         }
 
         public IActionResult Index()
         {
             return View();
+        }
+
+        [HttpPost]
+        public IActionResult GetBooks()
+        {
+            var skip = int.Parse(Request.Form["start"]);
+            var pageSize = int.Parse(Request.Form["length"]);
+
+            var searchValue = Request.Form["search[value]"];
+
+            var sortColumnIndex = Request.Form["order[0][column]"];
+            var sortColumn = Request.Form[$"columns[{sortColumnIndex}][name]"];
+            var sortColumnDirection = Request.Form["order[0][dir]"];
+
+            IQueryable<Book> books = _context.Books
+                .Include(b => b.Author)
+                .Include(b => b.Categories)
+                .ThenInclude(c => c.Category);
+
+            if (!string.IsNullOrEmpty(searchValue))
+                books = books.Where(b => b.Title.Contains(searchValue) || b.Author!.Name.Contains(searchValue));
+
+            books = books.OrderBy($"{sortColumn} {sortColumnDirection}");
+
+            var data = books.Skip(skip).Take(pageSize).ToList();
+
+            var mappedData = _mapper.Map<IEnumerable<BookViewModel>>(data);
+
+            var recordsTotal = books.Count();
+
+            var jsonData = new { recordsFiltered = recordsTotal, recordsTotal, data = mappedData };
+
+            return Ok(jsonData);
         }
 
         public IActionResult Details(int id)
@@ -30,7 +72,7 @@ namespace Bookify.Web.Controllers
                 .Include(b => b.Author)
                 .Include(b => b.Categories)
                 .ThenInclude(c => c.Category)
-                .SingleOrDefault(b => b.Id == id); 
+                .SingleOrDefault(b => b.Id == id);
 
             if (book is null)
                 return NotFound();
@@ -77,7 +119,6 @@ namespace Bookify.Web.Controllers
 
                 using var stream = System.IO.File.Create(path);
                 await model.Image.CopyToAsync(stream);
-
                 stream.Dispose();
 
                 book.ImageUrl = $"/images/books/{imageName}";
@@ -88,6 +129,20 @@ namespace Bookify.Web.Controllers
                 var height = image.Height / ratio;
                 image.Mutate(i => i.Resize(width: 200, height: (int)height));
                 image.Save(thumbPath);
+
+                //using var straem = model.Image.OpenReadStream();
+
+                //var imageParams = new ImageUploadParams
+                //{
+                //    File = new FileDescription(imageName, straem),
+                //    UseFilename = true
+                //};
+
+                //var result = await _cloudinary.UploadAsync(imageParams);
+
+                //book.ImageUrl = result.SecureUrl.ToString();
+                //book.ImageThumbnailUrl = GetThumbnailUrl(book.ImageUrl);
+                //book.ImagePublicId = result.PublicId;
             }
 
             foreach (var category in model.SelectedCategories)
@@ -126,6 +181,8 @@ namespace Bookify.Web.Controllers
             if (book is null)
                 return NotFound();
 
+            //string imagePublicId = null;
+
             if (model.Image is not null)
             {
                 if (!string.IsNullOrEmpty(book.ImageUrl))
@@ -138,6 +195,8 @@ namespace Bookify.Web.Controllers
 
                     if (System.IO.File.Exists(oldThumbPath))
                         System.IO.File.Delete(oldThumbPath);
+
+                    //await _cloudinary.DeleteResourcesAsync(book.ImagePublicId);
                 }
 
                 var extension = Path.GetExtension(model.Image.FileName);
@@ -171,6 +230,19 @@ namespace Bookify.Web.Controllers
                 var height = image.Height / ratio;
                 image.Mutate(i => i.Resize(width: 200, height: (int)height));
                 image.Save(thumbPath);
+
+                //using var straem = model.Image.OpenReadStream();
+
+                //var imageParams = new ImageUploadParams
+                //{
+                //    File = new FileDescription(imageName, straem),
+                //    UseFilename = true
+                //};
+
+                //var result = await _cloudinary.UploadAsync(imageParams);
+
+                //model.ImageUrl = result.SecureUrl.ToString();
+                //imagePublicId = result.PublicId;
             }
 
             else if (!string.IsNullOrEmpty(book.ImageUrl))
@@ -181,6 +253,8 @@ namespace Bookify.Web.Controllers
 
             book = _mapper.Map(model, book);
             book.LastUpdatedOn = DateTime.Now;
+            //book.ImageThumbnailUrl = GetThumbnailUrl(book.ImageUrl!);
+            //book.ImagePublicId = imagePublicId;
 
             foreach (var category in model.SelectedCategories)
                 book.Categories.Add(new BookCategory { CategoryId = category });
@@ -188,6 +262,23 @@ namespace Bookify.Web.Controllers
             _context.SaveChanges();
 
             return RedirectToAction(nameof(Details), new { id = book.Id });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        public IActionResult ToggleStatus(int id)
+        {
+            var book = _context.Books.Find(id);
+
+            if (book is null)
+                return NotFound();
+
+            book.IsDeleted = !book.IsDeleted;
+            book.LastUpdatedOn = DateTime.Now;
+
+            _context.SaveChanges();
+
+            return Ok();
         }
 
         public IActionResult AllowItem(BookFormViewModel model)
@@ -209,6 +300,16 @@ namespace Bookify.Web.Controllers
             viewModel.Categories = _mapper.Map<IEnumerable<SelectListItem>>(categories);
 
             return viewModel;
+        }
+
+        private string GetThumbnailUrl(string url)
+        {
+            var separator = "image/upload/";
+            var urlParts = url.Split(separator);
+
+            var thumbnailUrl = $"{urlParts[0]}{separator}c_thumb,w_200,g_face/{urlParts[1]}";
+
+            return thumbnailUrl;
         }
     }
 }
